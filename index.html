@@ -91,7 +91,7 @@
             height: 400px;
             margin: 0 auto;
             border-radius: 50%;
-            overflow: hidden;
+            overflow: visible;
             background: #f0f0f0;
             box-shadow: 0 5px 20px rgba(0,0,0,0.15);
         }
@@ -100,6 +100,7 @@
             display: block;
             width: 100%;
             height: 100%;
+            border-radius: 50%;
         }
 
         .controls-panel h3 {
@@ -268,10 +269,17 @@
             user-select: none;
             touch-action: none;
             z-index: 10;
+            transition: filter 0.2s;
+        }
+
+        .sticker-element:active {
+            filter: drop-shadow(0 0 10px rgba(102, 126, 234, 0.8));
+            transform: scale(1.1);
         }
 
         .sticker-element.selected {
             filter: drop-shadow(0 0 10px rgba(102, 126, 234, 0.8));
+            transform: scale(1.1);
         }
 
         @media (max-width: 1200px) {
@@ -446,7 +454,7 @@
                 </button>
 
                 <div class="control-group" style="margin-top: 30px;">
-                    <label>🎭 Add Stickers</label>
+                    <label>🎭 Add Stickers <span style="font-size: 0.85em; color: #666; font-weight: normal;">(Tap & drag to move)</span></label>
                     <div class="sticker-grid">
                         <div class="sticker" onclick="addSticker('❤️')">❤️</div>
                         <div class="sticker" onclick="addSticker('⭐')">⭐</div>
@@ -701,8 +709,8 @@
             // Mouse events
             stickerDiv.addEventListener('mousedown', startDrag);
             
-            // Touch events for mobile
-            stickerDiv.addEventListener('touchstart', startDrag);
+            // Touch events for mobile with proper options
+            stickerDiv.addEventListener('touchstart', startDrag, { passive: false });
 
             canvasContainer.appendChild(stickerDiv);
         }
@@ -719,8 +727,11 @@
             const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
             const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
 
-            dragOffset.x = clientX - rect.left - parseInt(selectedSticker.style.left);
-            dragOffset.y = clientY - rect.top - parseInt(selectedSticker.style.top);
+            const currentLeft = parseFloat(selectedSticker.style.left) || 0;
+            const currentTop = parseFloat(selectedSticker.style.top) || 0;
+
+            dragOffset.x = clientX - rect.left - currentLeft;
+            dragOffset.y = clientY - rect.top - currentTop;
 
             document.addEventListener('mousemove', drag);
             document.addEventListener('mouseup', stopDrag);
@@ -732,17 +743,25 @@
             if (!isDragging || !selectedSticker) return;
             
             e.preventDefault();
+            e.stopPropagation();
 
             const rect = canvasContainer.getBoundingClientRect();
             const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
             const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
 
+            // Calculate position relative to container
             let x = clientX - rect.left - dragOffset.x;
             let y = clientY - rect.top - dragOffset.y;
 
+            // Get sticker size for better boundary calculation
+            const stickerWidth = selectedSticker.offsetWidth;
+            const stickerHeight = selectedSticker.offsetHeight;
+            const containerWidth = canvasContainer.offsetWidth;
+            const containerHeight = canvasContainer.offsetHeight;
+
             // Keep sticker within bounds
-            x = Math.max(0, Math.min(x, 340));
-            y = Math.max(0, Math.min(y, 340));
+            x = Math.max(0, Math.min(x, containerWidth - stickerWidth));
+            y = Math.max(0, Math.min(y, containerHeight - stickerHeight));
 
             selectedSticker.style.left = `${x}px`;
             selectedSticker.style.top = `${y}px`;
@@ -787,15 +806,16 @@
             // Draw the main canvas content
             tempCtx.drawImage(canvas, 0, 0);
 
-            // Draw stickers on the final image
+            // Draw stickers on the final image at their exact positions
             stickers.forEach(sticker => {
                 tempCtx.font = `${sticker.size}px Arial`;
-                tempCtx.fillText(sticker.emoji, sticker.x, sticker.y + sticker.size - 10);
+                tempCtx.textBaseline = 'top';
+                tempCtx.fillText(sticker.emoji, sticker.x, sticker.y);
             });
 
             const link = document.createElement('a');
             link.download = 'whatsapp-dp.png';
-            link.href = tempCanvas.toDataURL();
+            link.href = tempCanvas.toDataURL('image/png');
             link.click();
         }
 
