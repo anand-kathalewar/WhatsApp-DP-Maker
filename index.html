@@ -262,6 +262,18 @@
             margin-left: 10px;
         }
 
+        .sticker-element {
+            position: absolute;
+            cursor: move;
+            user-select: none;
+            touch-action: none;
+            z-index: 10;
+        }
+
+        .sticker-element.selected {
+            filter: drop-shadow(0 0 10px rgba(102, 126, 234, 0.8));
+        }
+
         @media (max-width: 1200px) {
             .main-grid {
                 grid-template-columns: 1fr;
@@ -269,6 +281,14 @@
 
             .canvas-container {
                 margin: 20px auto;
+            }
+
+            body {
+                overflow-x: hidden;
+            }
+
+            input[type="range"] {
+                touch-action: pan-y;
             }
         }
 
@@ -372,7 +392,7 @@
             <!-- Center - Canvas Preview -->
             <div class="card" style="text-align: center;">
                 <h3 style="color: #667eea; margin-bottom: 20px;">Preview</h3>
-                <div class="canvas-container">
+                <div class="canvas-container" id="canvasContainer">
                     <canvas id="canvas" width="400" height="400"></canvas>
                 </div>
                 <div class="button-group" style="justify-content: center; margin-top: 20px;">
@@ -460,8 +480,13 @@
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
+        const canvasContainer = document.getElementById('canvasContainer');
         let originalImage = null;
         let currentImage = null;
+        let stickers = [];
+        let selectedSticker = null;
+        let isDragging = false;
+        let dragOffset = { x: 0, y: 0 };
 
         // Upload zone interactions
         const uploadZone = document.getElementById('uploadZone');
@@ -492,6 +517,16 @@
             if (file) {
                 loadImage(file);
             }
+        });
+
+        // Prevent mobile shake - add touch event handling
+        document.querySelectorAll('input[type="range"]').forEach(slider => {
+            slider.addEventListener('touchstart', (e) => {
+                e.stopPropagation();
+            });
+            slider.addEventListener('touchmove', (e) => {
+                e.stopPropagation();
+            });
         });
 
         function loadImage(file) {
@@ -560,6 +595,9 @@
                 ctx.drawImage(canvas, 0, 0);
                 ctx.filter = 'none';
             }
+
+            // Redraw all stickers after effects
+            redrawStickers();
         }
 
         function applyFilters(imageData, brightness, contrast, saturation, grayscale, sepia) {
@@ -641,21 +679,143 @@
         }
 
         function addSticker(emoji) {
-            ctx.font = '60px Arial';
-            ctx.fillText(emoji, Math.random() * 300 + 50, Math.random() * 300 + 50);
+            const sticker = {
+                emoji: emoji,
+                x: 170,
+                y: 170,
+                size: 60
+            };
+            stickers.push(sticker);
+            renderSticker(sticker);
+        }
+
+        function renderSticker(sticker) {
+            const stickerDiv = document.createElement('div');
+            stickerDiv.className = 'sticker-element';
+            stickerDiv.textContent = sticker.emoji;
+            stickerDiv.style.fontSize = `${sticker.size}px`;
+            stickerDiv.style.left = `${sticker.x}px`;
+            stickerDiv.style.top = `${sticker.y}px`;
+            stickerDiv.dataset.stickerId = stickers.indexOf(sticker);
+
+            // Mouse events
+            stickerDiv.addEventListener('mousedown', startDrag);
+            
+            // Touch events for mobile
+            stickerDiv.addEventListener('touchstart', startDrag);
+
+            canvasContainer.appendChild(stickerDiv);
+        }
+
+        function startDrag(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            isDragging = true;
+            selectedSticker = e.target;
+            selectedSticker.classList.add('selected');
+
+            const rect = canvasContainer.getBoundingClientRect();
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+
+            dragOffset.x = clientX - rect.left - parseInt(selectedSticker.style.left);
+            dragOffset.y = clientY - rect.top - parseInt(selectedSticker.style.top);
+
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', stopDrag);
+            document.addEventListener('touchmove', drag, { passive: false });
+            document.addEventListener('touchend', stopDrag);
+        }
+
+        function drag(e) {
+            if (!isDragging || !selectedSticker) return;
+            
+            e.preventDefault();
+
+            const rect = canvasContainer.getBoundingClientRect();
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+
+            let x = clientX - rect.left - dragOffset.x;
+            let y = clientY - rect.top - dragOffset.y;
+
+            // Keep sticker within bounds
+            x = Math.max(0, Math.min(x, 340));
+            y = Math.max(0, Math.min(y, 340));
+
+            selectedSticker.style.left = `${x}px`;
+            selectedSticker.style.top = `${y}px`;
+
+            // Update sticker data
+            const stickerId = selectedSticker.dataset.stickerId;
+            if (stickers[stickerId]) {
+                stickers[stickerId].x = x;
+                stickers[stickerId].y = y;
+            }
+        }
+
+        function stopDrag() {
+            if (selectedSticker) {
+                selectedSticker.classList.remove('selected');
+            }
+            isDragging = false;
+            selectedSticker = null;
+
+            document.removeEventListener('mousemove', drag);
+            document.removeEventListener('mouseup', stopDrag);
+            document.removeEventListener('touchmove', drag);
+            document.removeEventListener('touchend', stopDrag);
+        }
+
+        function redrawStickers() {
+            // Clear existing sticker elements
+            const stickerElements = canvasContainer.querySelectorAll('.sticker-element');
+            stickerElements.forEach(el => el.remove());
+
+            // Re-render all stickers
+            stickers.forEach(sticker => renderSticker(sticker));
         }
 
         function downloadImage() {
+            // Create a temporary canvas for final output
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 400;
+            tempCanvas.height = 400;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // Draw the main canvas content
+            tempCtx.drawImage(canvas, 0, 0);
+
+            // Draw stickers on the final image
+            stickers.forEach(sticker => {
+                tempCtx.font = `${sticker.size}px Arial`;
+                tempCtx.fillText(sticker.emoji, sticker.x, sticker.y + sticker.size - 10);
+            });
+
             const link = document.createElement('a');
             link.download = 'whatsapp-dp.png';
-            link.href = canvas.toDataURL();
+            link.href = tempCanvas.toDataURL();
             link.click();
         }
 
         function clearCanvas() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             originalImage = null;
+            stickers = [];
             document.getElementById('textInput').value = '';
+            
+            // Remove all sticker elements
+            const stickerElements = canvasContainer.querySelectorAll('.sticker-element');
+            stickerElements.forEach(el => el.remove());
+
+            // Reset placeholder
+            ctx.fillStyle = '#f0f0f0';
+            ctx.fillRect(0, 0, 400, 400);
+            ctx.fillStyle = '#999';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Upload a photo to start', 200, 200);
         }
 
         function resetEnhancements() {
@@ -692,18 +852,27 @@
             document.getElementById('overlayOpacityValue').textContent = document.getElementById('overlayOpacity').value + '%';
         }
 
-        // Event listeners for all controls
+        // Event listeners for all controls with debounce for better mobile performance
+        let debounceTimer;
         document.querySelectorAll('input[type="range"]').forEach(input => {
             input.addEventListener('input', () => {
                 updateAllValueDisplays();
-                applyAllEffects();
+                
+                // Debounce for smoother mobile experience
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    applyAllEffects();
+                }, 50);
             });
         });
 
         document.getElementById('textSize').addEventListener('input', updateAllValueDisplays);
         document.getElementById('overlayOpacity').addEventListener('input', () => {
             updateAllValueDisplays();
-            applyAllEffects();
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                applyAllEffects();
+            }, 50);
         });
         document.getElementById('overlayColor').addEventListener('change', applyAllEffects);
 
